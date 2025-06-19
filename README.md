@@ -55,3 +55,42 @@ Le message s'affiche dans telnet, dans curl et dans un navigateur. Il ne s'affic
 Le protocole HTTP est plus strict dans certains cas.
 
 ## 2.2 Serveur avec analyse du chemin
+### — Quelles sont les grandes responsabilités fonctionnelles de votre application serveur (gestion client, traitement commande, envoi message, logs, persistance…) ?
+On peut imaginer avoir :
+- la gestion des connexions clients
+- l'analyse et exécution des commandes
+- la diffusion des messages
+### Peut-on tracer une frontière claire entre logique métier et logique d’entrée/sortie réseau ?
+On peut distinguer la logique métier (traitement des commandes, gestion des canaux) de la logique réseau (écoute socket, send/recv).
+### En cas d’erreur dans une commande, quelle couche doit réagir ?
+La couche métier (l'analyse et exécution des commandes) doit signaler l’erreur. Et la couche réseau peut se charger de transmettre le message d’erreur au client.
+
+## 2.3 Scalabilité et capacité à évoluer
+### Si vous deviez ajouter une nouvelle commande (ex : /topic, /invite,/ban), quelle partie du système est concernée ?
+Pour ajouter des commandes, il faut modifier l'analyse et l'exécution des commandes.
+### Que faudrait-il pour que ce serveur fonctionne à grande échelle (plusieurs centaines de clients) ?
+Il faudrait distribuer l'application sur plusieurs serveurs.
+### Quelles limitations structurelles du code actuel empêchent une montée en charge ?
+Il n'y a pas d'espace partagé et de lock.
+
+## 2.4 Portabilité de l’architecture
+### Ce serveur TCP pourrait-il être adapté en serveur HTTP ? Quelles parties seraient conservées, quelles parties changeraient ?
+On garde la partie métier et on change toute la partie réseau.
+### Dans une perspective micro-services, quels modules seraient candidats naturels pour devenir des services indépendants ?
+Il y aurait :
+- Authentification
+- Gestion des canaux
+- Messages & gestion commande
+### Est-il envisageable de découpler la gestion des utilisateurs de celle des canaux ? Comment ?
+On peut découpler l'ensemble en utilisant des APIs qui feront office de services.
+
+## 2.5 Fiabilité, tolérance aux erreurs, robustesse
+### Le serveur sait-il détecter une déconnexion brutale d’un client ? Peut-il s’en remettre ?
+Il faut qu'il try les exceptions des sockets et donc faire le nécessaire dans ce cas.
+### Si un message ne peut pas être livré à un client (socket cassée), le système le détecte-t-il ?
+La socket lève une erreur.
+### Peut-on garantir une livraison ou au moins une trace fiable de ce qui a été tenté/envoyé ?
+On peut imaginer d'avoir un historique de tous les messages envoyés.
+
+## 2.6 Protocole : structuration et évolutivité
+Quelles sont les règles implicites du protocole que vous utilisez ? Une ligne = une commande, avec un préfixe (/msg, /join, etc.) et éventuellement des arguments : est-ce un protocole explicite, documenté, formalisé ?
