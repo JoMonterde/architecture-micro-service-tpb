@@ -55,42 +55,85 @@ Le message s'affiche dans telnet, dans curl et dans un navigateur. Il ne s'affic
 Le protocole HTTP est plus strict dans certains cas.
 
 ## 2.2 Serveur avec analyse du chemin
-### — Quelles sont les grandes responsabilités fonctionnelles de votre application serveur (gestion client, traitement commande, envoi message, logs, persistance…) ?
-On peut imaginer avoir :
-- la gestion des connexions clients
-- l'analyse et exécution des commandes
-- la diffusion des messages
-### Peut-on tracer une frontière claire entre logique métier et logique d’entrée/sortie réseau ?
-On peut distinguer la logique métier (traitement des commandes, gestion des canaux) de la logique réseau (écoute socket, send/recv).
-### En cas d’erreur dans une commande, quelle couche doit réagir ?
-La couche métier (l'analyse et exécution des commandes) doit signaler l’erreur. Et la couche réseau peut se charger de transmettre le message d’erreur au client.
+### 1. Quelle est la structure de la ligne de requête HTTP reçue côté serveur ? Quels sont les trois éléments que vous devez extraire ?
+On a la structure suivante : GET /motd HTTP/1.1
+On a donc à extraire : 
+1. Méthode (l'action)
+2. Chemin (l'accès à la ressource)
+3. Version (la version du protocole)
 
-## 2.3 Scalabilité et capacité à évoluer
-### Si vous deviez ajouter une nouvelle commande (ex : /topic, /invite,/ban), quelle partie du système est concernée ?
-Pour ajouter des commandes, il faut modifier l'analyse et l'exécution des commandes.
-### Que faudrait-il pour que ce serveur fonctionne à grande échelle (plusieurs centaines de clients) ?
-Il faudrait distribuer l'application sur plusieurs serveurs.
-### Quelles limitations structurelles du code actuel empêchent une montée en charge ?
-Il n'y a pas d'espace partagé et de lock.
+### 2. Que se passe-t-il si la ligne est mal formée (ex. : vide ou incomplète) ? Comment éviter une erreur dans votre code ?
+Si la ligne est mal formée, cela provoquera une exception (ValueError)
 
-## 2.4 Portabilité de l’architecture
-### Ce serveur TCP pourrait-il être adapté en serveur HTTP ? Quelles parties seraient conservées, quelles parties changeraient ?
-On garde la partie métier et on change toute la partie réseau.
-### Dans une perspective micro-services, quels modules seraient candidats naturels pour devenir des services indépendants ?
-Il y aurait :
-- Authentification
-- Gestion des canaux
-- Messages & gestion commande
-### Est-il envisageable de découpler la gestion des utilisateurs de celle des canaux ? Comment ?
-On peut découpler l'ensemble en utilisant des APIs qui feront office de services.
+### 3. Que contient exactement la variable chemin ? Est-ce toujours ce que l’utilisateur a tapé dans l’URL ?
+La variable chemin contient le chemin brut de l’URL demandée.
 
-## 2.5 Fiabilité, tolérance aux erreurs, robustesse
-### Le serveur sait-il détecter une déconnexion brutale d’un client ? Peut-il s’en remettre ?
-Il faut qu'il try les exceptions des sockets et donc faire le nécessaire dans ce cas.
-### Si un message ne peut pas être livré à un client (socket cassée), le système le détecte-t-il ?
-La socket lève une erreur.
-### Peut-on garantir une livraison ou au moins une trace fiable de ce qui a été tenté/envoyé ?
-On peut imaginer d'avoir un historique de tous les messages envoyés.
+### 4. Que fait votre serveur si la méthode reçue est autre que GET ? Par exemple : POST, FOO, TEAPOT ?
+Deux cas possibles : soit les méthodes sont traitées par le serveur, auquel cas on aura un fonctionnement spécifique selon la situation (POST permettra de modifier les données, par exemple).
+Par contre, si notre serveur ne sait traiter que la méthode GET, le reste doit être ignoré ou renvoyer une erreur.
+### 5. Que se passe-t-il si le chemin n’est pas reconnu (ex. : /truc) ? Quel message retournez-vous ? Est-il lisible ?
+On retourne une erreur 404 Not Found. Le message est en soit lisible.
 
-## 2.6 Protocole : structuration et évolutivité
-Quelles sont les règles implicites du protocole que vous utilisez ? Une ligne = une commande, avec un préfixe (/msg, /join, etc.) et éventuellement des arguments : est-ce un protocole explicite, documenté, formalisé ?
+### 6. Le message 404 Not Found est-il suffisant comme réponse ? Pourriez-vous y ajouter un texte plus explicite ?
+Il peut suffire en tant que tel, mais il peut effectivement être personnalisé, avec un texte plus explicite selon les cas, pour aider l'utilisateur.
+
+### 7. Est-ce que les chemins /motd, /motd/, et /motd?x=42 sont identiques ? Comment les différencier ou les normaliser ?
+Non, ils sont différents :
+- /motd : chemin de base.
+- /motd/ : peut être traité comme un répertoire ou un autre chemin.
+- /motd?x=42 : inclut des paramètres de requête.
+
+### 8. Pour ajouter un nouveau chemin comme /bonjour, que faut-il modifier dans votre code ? Est-ce que votre structure est facilement extensible ?
+> Il suffit d’ajouter une nouvelle branche de condition dans notre code. C'est assez facilement extensible, mais cette structure peut vite devenir difficilement maintenable. Utiliser un dictionnaire serait plus propre.
+
+### 9. Que pourrait-il se passer si un utilisateur tape une URL comme /../../etc/passwd ? Pourquoi est-ce potentiellement dangereux ?
+Le mot de passe n'est pas du tout protégé, il peut être très facilement intercepté. Cela est donc dangereux car pas du tout protégé.
+
+### 10. Est-ce que vous traitez le chemin comme une simple chaîne de caractères, ou comme une ressource contrôlée ? Quelles protections pourriez-vous ajouter pour éviter les comportements inattendus ?
+Si vous traitez le chemin comme une chaîne de caractères brute, vous êtes vulnérable.
+Il faut donc protéger les URL pour éviter l'injection de code, notamment. 
+
+## 2.3 Serveur dynamique, avec /date
+
+### 1. Quelle est la ligne exacte reçue par le serveur quand un client appelle /date ? Comment repérez-vous ce chemin ?
+La première ligne reçue est :
+
+sql
+Copier
+Modifier
+GET /date HTTP/1.1
+
+### 2. Comment déterminez-vous que la requête est terminée ? Quelle est l’utilité de la ligne vide à la fin de la requête ?
+Justement grâce à la présence de cette ligne vide, qui sépare en-tête et corps (de la requête tout court, dans le cas d'un GET qui n'a donc pas de body).
+
+### 3. Que contient la réponse retournée par votre serveur ? Est-ce que la date change à chaque appel ?
+
+Nous sommes le lundi 24 juin 2025, 14:18:02
+Le corps contient la date et l’heure actuelles, donc la valeur change à chaque appel, grâce à datetime.
+
+### 4. Quel champ d’en-tête est indispensable pour que la réponse soit bien comprise par le client ? Que se passe-t-il si vous oubliez Content-Length ?
+Le champ Content-Length est indispensable, car certains clients (navigateur, curl) peuvent ne rien afficher du tout ou attendre la fin de la connexion. D’autres peuvent tronquer ou mal interpréter le contenu.
+
+### 5. Que se passe-t-il si Content-Length est incorrect (trop petit ou trop grand) ? Testez avec curl, telnet, et un navigateur.
+Trop petit : une partie du message est coupée.
+
+Trop grand : le client peut : attendre indéfiniment le reste des données (curl, telnet), afficher partiellement ou se bloquer (navigateur), générer une erreur de format.
+
+### 6. Le corps de votre réponse contient-il des caractères spéciaux ou des retours à la ligne (\n) ? Comment sont-ils affichés selon le client utilisé ?
+Navigateur : rend les \n en texte brut, pas de saut de ligne (sauf avec <br> en HTML).
+
+curl / telnet : affichent bien les sauts de ligne dans le terminal.
+
+### 7. Que renvoie votre serveur si un autre chemin est demandé, par exemple /time ou /now ? Est-ce prévu ? Que se passe-t-il ?
+Ce n'est pas prévu, donc le serveur retourne une réponse 404.
+
+### 8. Est-ce que le serveur répond de manière fiable même si deux clients se connectent successivement ? Et en même temps ?
+Successivement : oui, aucun problème, les requêtes sont traitées une par une.
+
+En même temps : pour répondre à plusieurs clients en parallèle, il faut utiliser des threads ou un serveur asynchrone, sinon cela génère des problèmes.
+
+### 9. Pourriez-vous ajouter un autre chemin dynamique (comme /uptime) ? Quelles informations pourraient être utiles à afficher ?
+Oui, c'est envisageable. On pourrait par exemple afficher le temps écoulé depuis le lancement du serveur, l'adresse IP du client, le nombre de connexions, ...
+
+### 10. Que faudrait-il faire pour rendre ce serveur un peu plus “propre” ou modulaire ? Est-ce que le code pourrait être réorganisé pour gérer plusieurs routes dynamiques plus facilement ?
+Oui. Pour une meilleure maintenabilité, un dictionnaire serait une bonne idée.
